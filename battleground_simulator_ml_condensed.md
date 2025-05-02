@@ -81,6 +81,47 @@ Implements Proximal Policy Optimization (PPO) for continuous strategy improvemen
   - Learning rate: 3e-4 with linear decay
 - **Performance**: Achieves >50% win rate after ~90-100 training battles
 
+**Architecture Diagram**:
+
+```plantuml
+@startuml "Reinforcement Learning Architecture"
+
+package "Battle Environment" {
+  [BattleSimulator] as BS
+  [RewardCalculator] as RC
+  [ActionProcessor] as AP
+}
+
+package "PPO Architecture" {
+  [PolicyNetwork] as PN
+  [ValueNetwork] as VN
+  [ExperienceBuffer] as EB
+  [EntropyRegularization] as ER
+}
+
+package "Training Components" {
+  [LossCalculator] as LC
+  [Optimizer] as OPT
+  [LearningRateScheduler] as LRS
+}
+
+BS --> RC : Battle outcome
+RC --> EB : Reward signal
+EB --> PN : Training data
+EB --> VN : Training data
+PN --> AP : Action probabilities
+AP --> BS : Valid formation
+ER --> PN : Encourages exploration
+LC --> OPT : Loss values
+OPT --> PN : Updates weights
+OPT --> VN : Updates weights
+LRS --> OPT : Adjusts learning rate
+
+@enduml
+```
+
+The RL agent uses a model-free approach where the agent learns directly from experience rather than building an explicit model of the environment. This allows for greater adaptability but requires more training examples to achieve mastery.
+
 ### 2.5 Component Integration
 Components function both independently and as a coordinated system:
 
@@ -142,6 +183,86 @@ Each battle record contains:
 - Formation effectiveness by success rates
 - Learning curves showing performance improvements 
 
+### 3.4 Data Flow Architecture
+The ML system uses a structured data flow architecture:
+
+```plantuml
+@startuml "ML Data Flow"
+
+agent User
+database "Battle\nHistory" as History
+database "Formation\nTemplates" as Templates
+
+frame "ML Pipeline" {
+  component "Formation\nRecognizer" as FR
+  component "Strategy\nRecommender" as SR
+  component "Reinforcement\nLearning" as RL
+  component "Battle\nSimulator" as BS
+}
+
+User --> BS : Enemy formation
+BS --> History : Store battle data
+History --> FR : Training data
+FR --> SR : Formation patterns
+Templates --> SR : Formation templates
+SR --> BS : Recommended formations
+RL --> BS : RL-generated formations
+BS --> User : Battle outcome
+
+@enduml
+```
+
+**Component Interactions**:
+
+```plantuml
+@startuml "ML Component Interactions"
+
+package "Machine Learning Pipeline" {
+  [Formation Recognizer] as FR
+  [Strategy Recommender] as SR
+  [Reinforcement Learning Agent] as RL
+  [Battle Simulator] as BS
+  [Data Collector] as DC
+}
+
+interface "Enemy Formation" as EF
+interface "Counter Formation" as CF
+interface "Battle History" as BH
+interface "Training Data" as TD
+interface "Win Prediction" as WP
+interface "Battle Outcome" as BO
+
+EF --> FR
+EF --> SR
+EF --> RL
+
+FR --> SR : Pattern features
+SR --> CF : Recommended formations
+RL --> CF : RL-based formations
+
+CF --> BS
+EF --> BS
+
+BS --> BH : Generates
+BH --> DC : Stores
+DC --> TD : Provides
+TD --> FR : Trains
+TD --> SR : Trains
+BS --> BO : Determines
+
+SR --> WP : Predicts
+WP -.-> BO : Compared with
+
+@enduml
+```
+
+The data flow architecture ensures that:
+1. Battle outcomes provide the fundamental training signal
+2. The Formation Recognizer processes enemy formations to extract tactical patterns
+3. The Strategy Recommender consumes these patterns to generate counter-formations
+4. The Reinforcement Learning system provides an alternative path for formation generation
+5. All components learn from battle history stored in the central data repository
+
 ## 4. MODEL DEVELOPMENT
 
 ### 4.1 Environment Setup
@@ -180,11 +301,62 @@ Input (batch_size, 25, 10, 7) →
   Linear(256→64) [Embedding]
 ```
 
+**PyTorch Implementation**:
+```python
+class FormationRecognizer(nn.Module):
+    def __init__(self, embedding_size=64):
+        super(FormationRecognizer, self).__init__()
+        
+        # Encoder layers
+        self.conv1 = nn.Conv2d(len(UNIT_TYPES), 32, kernel_size=3, padding=1)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        
+        # Calculate feature size after convolutions and pooling
+        feature_size = self._calculate_feature_size()
+        
+        # Fully connected layers
+        self.fc1 = nn.Linear(feature_size, 256)
+        self.fc2 = nn.Linear(256, embedding_size)
+        
+    def get_embedding(self, formation):
+        """Extract embedding from formation."""
+        x = self._preprocess_formation(formation)
+        
+        # Forward pass through encoder only
+        x = F.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = F.relu(self.conv2(x))
+        x = self.pool2(x)
+        x = x.flatten(1)
+        x = F.relu(self.fc1(x))
+        embedding = self.fc2(x)
+        
+        return embedding.detach().cpu().numpy()
+        
+    def _preprocess_formation(self, formation):
+        """Convert formation to tensor and apply channel-first transformation."""
+        # Convert to tensor if not already
+        if isinstance(formation, np.ndarray):
+            formation = torch.from_numpy(formation).float()
+        
+        # Add batch dimension if needed
+        if len(formation.shape) == 3:
+            formation = formation.unsqueeze(0)
+            
+        # Permute to channel-first format for PyTorch: [B, H, W, C] -> [B, C, H, W]
+        formation = formation.permute(0, 3, 1, 2)
+        
+        return formation.to(self.device)
+```
+
 **Key Design Decisions**:
 - Autoencoder structure enables unsupervised learning from unlabeled formations
 - Convolutional layers capture spatial relationships between units
 - Decoder (used only during training) reconstructs the input to provide learning signal
 - 64-dimensional embedding provides compact representation for downstream components
+- Channel-first permutation optimizes for PyTorch's CNN implementation
 
 **Performance Characteristics**:
 - Reconstruction accuracy: 91.4%
@@ -320,6 +492,44 @@ The model demonstrates strong prediction accuracy while maintaining minimal late
 
 ## 6. MODEL INTERPRETATION
 
+The ML system follows a structured decision process for analyzing and responding to enemy formations:
+
+```plantuml
+@startuml "ML Decision Process"
+
+state "Enemy Analysis" as EA {
+  state "Formation Recognition" as FR
+  state "Historical Effectiveness Analysis" as HEA
+}
+
+state "Strategy Generation" as SG {
+  state "Template-Based Generation" as TBG
+  state "Rule-Based Adaptation" as RBA
+  state "RL Policy Generation" as RLPG
+}
+
+state "Candidate Evaluation" as CE {
+  state "Success Probability Prediction" as SPP
+  state "Diversity Analysis" as DA
+  state "Budget Validation" as BV
+}
+
+state "Strategy Selection" as SS {
+  state "Top-K Selection" as TKS
+  state "Diversity Enforcement" as DE
+}
+
+[*] --> EA
+EA --> SG
+SG --> CE
+CE --> SS
+SS --> [*]
+
+@enduml
+```
+
+The model interpretation techniques below help visualize how the AI system progresses through these decision states.
+
 ### 6.1 Formation Pattern Recognition Visualization
 **Embedding Visualization Techniques**:
 - t-SNE dimensionality reduction reveals clustering of similar tactical formations
@@ -345,6 +555,93 @@ The model demonstrates strong prediction accuracy while maintaining minimal late
 - Unit synergy clusters with multiplicative effects on win rates
 
 ### 6.3 Decision-Making Process Visualization
+**Decision Flow Diagram**:
+
+```plantuml
+@startuml "Battle AI Decision Flow"
+
+!define PURPLE #C0A0FF
+!define BLUE #A0C0FF
+!define GREEN #A0FFC0
+!define YELLOW #FFFFA0
+
+skinparam activity {
+    BackgroundColor YELLOW
+    BorderColor black
+    ArrowColor black
+}
+
+skinparam note {
+    BackgroundColor YELLOW
+    BorderColor black
+}
+
+(*) --> "Enemy Formation Appears"
+
+note right
+  <b>Technical:</b> 3D Tensor with dimensions (height, width, unit_types)
+  <b>Simple:</b> The arrangement of enemy units on the battlefield
+end note
+
+--> "Formation Recognition"
+note right
+  <b>Technical:</b> CNN-based pattern classification
+  <b>Simple:</b> AI identifies what type of attack/defense strategy
+end note
+
+--> "Feature Extraction"
+note right
+  <b>Technical:</b> Spatial, tactical & strategic feature engineering
+  <b>Simple:</b> AI analyzes the strengths and weaknesses
+end note
+
+--> "Strategy Generation"
+
+note right
+  <b>Technical:</b> Candidate formation generation with constraints
+  <b>Simple:</b> AI creates several possible counter-formations
+end note
+
+--> "Success Prediction"
+
+note right
+  <b>Technical:</b> Neural network inference with sigmoid output
+  <b>Simple:</b> AI scores each counter-formation's chance of winning
+end note
+
+--> "Formation Selection"
+
+note right
+  <b>Technical:</b> Top-k selection with exploitation/exploration balance
+  <b>Simple:</b> AI chooses the most promising counter-formation
+end note
+
+--> "Battle Simulation"
+
+note right
+  <b>Technical:</b> Turn-based state evolution with deterministic rules
+  <b>Simple:</b> Units fight and the battle plays out
+end note
+
+--> "Outcome Recording"
+
+note right
+  <b>Technical:</b> Data collection for supervised learning
+  <b>Simple:</b> AI remembers what happened for future learning
+end note
+
+--> "Model Retraining"
+
+note right
+  <b>Technical:</b> Backpropagation & PPO optimization
+  <b>Simple:</b> AI improves its strategy based on battle results
+end note
+
+--> (*)
+
+@enduml
+```
+
 **Strategy Generation Flow Visualization**:
 - Flowchart representation showing the path from enemy analysis to recommendations
 - Visualization of template selection vs. neural generation pathways
@@ -380,29 +677,204 @@ The model demonstrates strong prediction accuracy while maintaining minimal late
 ### 7.1 System Architecture
 The Battleground Simulator implements a modular architecture:
 
-```
-┌──────────────────────────┐
-│ SIMULATION ENGINE        │
-│   - Battle Simulator     │
-│   - Combat Resolver      │
-│   - Data Collector       │
-└───────────┬──────────────┘
-            │
-            ▼
-┌──────────────────────────┐
-│ MACHINE LEARNING SYSTEM  │
-│   - Formation Recognizer │
-│   - Strategy Recommender │
-│   - RL Agent             │
-└───────────┬──────────────┘
-            │
-            ▼
-┌──────────────────────────┐
-│ VISUALIZATION ENGINE     │
-│   - Battlefield Renderer │
-│   - Statistics Display   │
-│   - Interaction Handler  │
-└──────────────────────────┘
+```plantuml
+@startuml "Battle AI System Architecture"
+
+' Color definitions
+!define PURPLE #C0A0FF
+!define BLUE #A0C0FF
+!define GREEN #A0FFC0
+!define YELLOW #FFFFA0
+!define RED #FFA0A0
+!define GRAY #E0E0E0
+
+skinparam class {
+    BackgroundColor GRAY
+    ArrowColor black
+    BorderColor black
+}
+
+skinparam note {
+    BackgroundColor YELLOW
+    BorderColor black
+}
+
+package "Core Components" {
+    class BattleSimulator {
+        + simulate_battle()
+        + generate_random_formation()
+        + calculate_battle_outcome()
+        - _apply_damage()
+        - _move_units()
+    }
+    
+    class BattlefieldState {
+        + unit_positions: 3D Tensor
+        + calculate_health()
+        + get_unit_at(x, y)
+    }
+    
+    class BattleDataCollector {
+        - battle_history: List
+        + record_battle()
+        + get_training_data()
+    }
+}
+
+note bottom of BattleSimulator
+  <b>In Simple Terms:</b>
+  The engine that runs the battles and 
+  calculates who wins based on unit
+  positions and stats
+end note
+
+package "Formation Recognition System" <<PURPLE>> {
+    class FormationRecognizer {
+        - conv_layers: List<Conv2D>
+        - fc_layers: List<Linear>
+        + forward(formation: Tensor): PatternVector
+        + classify_formation(formation): PatternType
+        + extract_features(formation): FeatureVector
+    }
+    
+    class FeatureExtractor {
+        + extract_spatial_features()
+        + extract_tactical_features()
+        + extract_strategic_features()
+    }
+    
+    class PatternDatabase {
+        - known_patterns: Dict
+        + get_similar_patterns()
+        + record_new_pattern()
+    }
+}
+
+note bottom of FormationRecognizer
+  <b>In Simple Terms:</b>
+  AI's "eyes" that recognize enemy
+  formation patterns (like how you
+  recognize faces in photos)
+end note
+
+package "Strategy Generation System" <<BLUE>> {
+    class StrategyRecommender {
+        - predictor: StrategyPredictor
+        + recommend_formations(enemy_formation): List<Formation>
+        + evaluate_formation(enemy, home): float
+        - _generate_candidates(): List<Formation>
+    }
+    
+    class StrategyPredictor {
+        - enemy_cnn: CNN
+        - home_cnn: CNN
+        - fc_network: NeuralNetwork
+        + predict_success_probability(enemy, home): float
+        - _forward(enemy, home): Tensor
+    }
+    
+    class FormationGenerator {
+        - templates: List<Formation>
+        + generate_from_template()
+        + apply_constraints()
+        + ensure_diversity()
+    }
+}
+
+note bottom of StrategyRecommender
+  <b>In Simple Terms:</b>
+  AI's "brain" that creates battle plans
+  to counter the enemy formation
+end note
+
+package "Reinforcement Learning System" <<GREEN>> {
+    class BattleEnvironment {
+        - simulator: BattleSimulator
+        - observation_space: Box
+        - action_space: Box
+        + reset(): Observation
+        + step(action): Tuple<Observation, Reward, Done, Info>
+        - _calculate_reward(): float
+    }
+    
+    class PPOAgent {
+        - policy: ActorNetwork
+        - value: CriticNetwork
+        - buffer: ExperienceBuffer
+        + predict(observation): Action
+        + learn(total_timesteps): self
+        - _update_policy()
+    }
+    
+    class RewardSystem {
+        + battle_outcome_reward()
+        + health_differential_reward()
+        + diversity_bonus()
+    }
+}
+
+note bottom of PPOAgent
+  <b>In Simple Terms:</b>
+  AI's "experimentation lab" where it
+  tries different strategies and learns
+  from wins and losses
+end note
+
+package "Training System" <<RED>> {
+    class ModelTrainer {
+        + train_formation_recognizer()
+        + train_strategy_predictor()
+        + train_reinforcement_agent()
+        - _prepare_training_data()
+    }
+    
+    class LearningRateScheduler {
+        + step_decay()
+        + cosine_annealing()
+    }
+    
+    class PerformanceEvaluator {
+        + evaluate_win_rate()
+        + evaluate_unit_diversity()
+        + analyze_formation_effectiveness()
+    }
+}
+
+note bottom of ModelTrainer
+  <b>In Simple Terms:</b>
+  AI's "school" where it learns from
+  past battles to make better decisions
+end note
+
+' Relationships
+BattleSimulator --> BattlefieldState: creates >
+BattleSimulator --> BattleDataCollector: provides data to >
+
+FormationRecognizer --> FeatureExtractor: uses >
+FormationRecognizer <-- PatternDatabase: informs <
+
+StrategyRecommender --> StrategyPredictor: uses >
+StrategyRecommender --> FormationGenerator: uses >
+StrategyRecommender --> FormationRecognizer: receives input from >
+
+BattleEnvironment --> BattleSimulator: wraps >
+BattleEnvironment --> RewardSystem: uses >
+PPOAgent --> BattleEnvironment: interacts with >
+
+ModelTrainer --> BattleDataCollector: gets data from >
+ModelTrainer --> FormationRecognizer: trains >
+ModelTrainer --> StrategyPredictor: trains >
+ModelTrainer --> PPOAgent: trains >
+ModelTrainer --> LearningRateScheduler: uses >
+ModelTrainer --> PerformanceEvaluator: uses >
+
+' Main flow connections
+BattlefieldState <-- FormationRecognizer: analyzes <
+FormationRecognizer --> StrategyRecommender: informs >
+StrategyRecommender --> BattleSimulator: provides formations to >
+PPOAgent --> BattleSimulator: provides formations to >
+
+@enduml
 ```
 
 Key architectural principles:
@@ -412,6 +884,124 @@ Key architectural principles:
 
 ### 7.2 Class Structure
 Key classes and their relationships:
+
+```plantuml
+@startuml "ML Components Class Diagram"
+
+package "Core Components" {
+  class BattleSimulator {
+    + simulate_battle()
+    + simulate_battle_with_history()
+    + generate_random_formation()
+  }
+  
+  class BattlefieldVisualizer {
+    + render_battlefield()
+    + render_battle_replay()
+    + render_battle_aftermath()
+  }
+  
+  class BattleDataCollector {
+    + record_battle()
+    + get_battle_data()
+    + get_battle_count()
+  }
+}
+
+package "Machine Learning" {
+  class FormationRecognizer {
+    - conv1: Conv2d
+    - pool1: MaxPool2d
+    - conv2: Conv2d
+    - pool2: MaxPool2d
+    - fc1: Linear
+    - fc2: Linear
+    + forward()
+    + classify_formation()
+    + extract_features()
+  }
+  
+  class StrategyRecommender {
+    - strategy_predictor: StrategyPredictor
+    - formation_templates: List
+    + recommend_formations()
+    + evaluate_formation()
+    + generate_candidates()
+    - _make_formation_valid()
+  }
+  
+  class StrategyPredictor {
+    - enemy_conv1/2: Conv2d
+    - enemy_pool1/2: MaxPool2d
+    - counter_conv1/2: Conv2d
+    - counter_pool1/2: MaxPool2d
+    - fc1/2/3: Linear
+    + forward()
+    + predict_success_probability()
+  }
+  
+  class BattleEnvironment {
+    - simulator: BattleSimulator
+    - observation_space: Box
+    - action_space: Box
+    - enemy_formation: Array
+    + reset()
+    + step()
+    - _process_action()
+    - _make_formation_valid()
+    - _calculate_reward()
+  }
+  
+  class PPOAgent {
+    - policy_network: MlpPolicy
+    - value_network: MlpNetwork
+    + predict()
+    + learn()
+    + save()
+    + load()
+  }
+}
+
+package "Training Functions" {
+  class train_formation_recognizer {
+    + preprocessing()
+    + train_model()
+    + evaluate_model()
+  }
+  
+  class train_counter_strategy_model {
+    + data_preparation()
+    + train_model()
+    + save_model()
+  }
+  
+  class train_strategy_ai {
+    + create_environment()
+    + configure_ppo()
+    + train_ppo()
+    + save_model()
+  }
+}
+
+BattleSimulator -- BattleDataCollector : provides data to >
+BattleDataCollector -- FormationRecognizer : trains <
+BattleDataCollector -- StrategyPredictor : trains <
+
+StrategyRecommender -- StrategyPredictor : uses >
+StrategyRecommender -- FormationRecognizer : uses >
+
+BattleEnvironment -- BattleSimulator : wraps >
+PPOAgent -- BattleEnvironment : interacts with >
+
+train_formation_recognizer -- FormationRecognizer : creates >
+train_counter_strategy_model -- StrategyPredictor : creates >
+train_strategy_ai -- PPOAgent : creates >
+train_strategy_ai -- BattleEnvironment : creates >
+
+@enduml
+```
+
+The key classes in the system include:
 
 1. **BattlegroundSimulator**: Main coordinator class managing all components
    - Initializes all subsystems
@@ -445,6 +1035,39 @@ Key classes and their relationships:
 
 ### 7.3 API Reference
 Core API methods:
+
+```plantuml
+@startuml "ML Model Interfaces"
+
+interface FormationRecognizer {
+  + classify_formation(formation: ndarray) -> PatternType
+  + extract_features(formation: ndarray) -> ndarray
+}
+
+interface StrategyRecommender {
+  + recommend_formations(enemy_formation: ndarray, num_recommendations: int) -> List[Formation]
+  + evaluate_formation(enemy_formation: ndarray, counter_formation: ndarray) -> float
+}
+
+interface RLAgent {
+  + predict(observation: ndarray) -> Tuple[ndarray, Dict]
+  + learn(total_timesteps: int) -> Self
+}
+
+class BattlegroundSimulator {
+  + run_demo_battle(enemy_formation: ndarray, use_rl: bool) -> Tuple[str, float, float]
+  + run_training_session(num_battles: int) -> float
+  + retrain_models() -> None
+}
+
+FormationRecognizer <-- BattlegroundSimulator : uses
+StrategyRecommender <-- BattlegroundSimulator : uses
+RLAgent <-- BattlegroundSimulator : uses
+
+@enduml
+```
+
+The system provides the following core API methods:
 
 ```python
 # Main simulation methods
@@ -634,6 +1257,158 @@ Knowledge sharing between model components:
 - 42% reduction in training time compared to independent training
 - 28% improvement in generalization to new formation types
 - Accelerated RL adaptation (50% win rate in 40 vs 90 iterations)
+
+### 9.6 ML Component Workflow
+The system implements specific workflows for different AI approaches:
+
+**Formation Recognition and Strategy Recommendation Workflow**:
+
+```plantuml
+@startuml "Formation Recognition Workflow"
+
+actor User
+participant BattlegroundSimulator
+participant BattleSimulator
+participant FormationRecognizer
+participant StrategyRecommender
+participant StrategyPredictor
+
+User -> BattlegroundSimulator : run_demo_battle()
+activate BattlegroundSimulator
+
+BattlegroundSimulator -> BattleSimulator : generate_random_formation("ENEMY")
+activate BattleSimulator
+BattleSimulator --> BattlegroundSimulator : enemy_formation
+deactivate BattleSimulator
+
+alt Use AI strategy
+  BattlegroundSimulator -> FormationRecognizer : classify_formation(enemy_formation)
+  activate FormationRecognizer
+  FormationRecognizer --> BattlegroundSimulator : formation_pattern
+  deactivate FormationRecognizer
+  
+  BattlegroundSimulator -> StrategyRecommender : recommend_formations(enemy_formation)
+  activate StrategyRecommender
+  
+  loop for multiple candidate formations
+    StrategyRecommender -> StrategyRecommender : generate_candidates()
+    
+    loop for each candidate
+      StrategyRecommender -> StrategyPredictor : predict_success_probability(enemy_formation, candidate)
+      activate StrategyPredictor
+      StrategyPredictor --> StrategyRecommender : success_probability
+      deactivate StrategyPredictor
+    end
+    
+    StrategyRecommender -> StrategyRecommender : select_top_formations()
+  end
+  
+  StrategyRecommender --> BattlegroundSimulator : recommended_formations
+  deactivate StrategyRecommender
+  
+  BattlegroundSimulator -> BattlegroundSimulator : home_formation = recommended_formations[0]
+end
+
+BattlegroundSimulator -> BattleSimulator : simulate_battle_with_history(enemy_formation, home_formation)
+activate BattleSimulator
+BattleSimulator --> BattlegroundSimulator : battle_history
+deactivate BattleSimulator
+
+BattlegroundSimulator --> User : battle_visualization
+deactivate BattlegroundSimulator
+
+@enduml
+```
+
+**Reinforcement Learning Workflow**:
+
+```plantuml
+@startuml "Reinforcement Learning Workflow"
+
+actor User
+participant BattlegroundSimulator
+participant BattleEnvironment
+participant PPOAgent
+participant BattleSimulator
+
+User -> BattlegroundSimulator : run_demo_battle(use_rl=True)
+activate BattlegroundSimulator
+
+BattlegroundSimulator -> BattleSimulator : generate_random_formation("ENEMY")
+activate BattleSimulator
+BattleSimulator --> BattlegroundSimulator : enemy_formation
+deactivate BattleSimulator
+
+BattlegroundSimulator -> PPOAgent : predict(enemy_formation)
+activate PPOAgent
+
+PPOAgent -> PPOAgent : process observation
+note right: Convert formation to \ntensor representation
+
+PPOAgent -> PPOAgent : forward pass through policy network
+note right: Actor network produces\nunit placement probabilities
+
+PPOAgent --> BattlegroundSimulator : action
+deactivate PPOAgent
+
+BattlegroundSimulator -> BattlegroundSimulator : convert action to home_formation
+note right: Threshold probabilities and\napply formation constraints
+
+BattlegroundSimulator -> BattleSimulator : simulate_battle_with_history(enemy_formation, home_formation)
+activate BattleSimulator
+BattleSimulator --> BattlegroundSimulator : battle_history
+deactivate BattleSimulator
+
+BattlegroundSimulator --> User : battle_visualization
+deactivate BattlegroundSimulator
+
+@enduml
+```
+
+**ML Training Process**:
+
+```plantuml
+@startuml "ML Training Process"
+
+start
+
+:Initialize Data Collector;
+
+repeat
+  :Run training battles;
+  :Record battle outcomes and formations;
+repeat while (Enough training data?) is (no)
+->yes;
+
+fork
+  :Train Formation Recognizer;
+  :Extract formation patterns;
+  :Train CNN model;
+  :Evaluate pattern classification accuracy;
+fork again
+  :Train Counter-Strategy Predictor;
+  :Prepare paired formation data;
+  :Train CNN with paired formations;
+  :Evaluate win prediction accuracy;
+fork again
+  :Train Reinforcement Learning Agent;
+  :Create battle environment;
+  :Configure PPO algorithm;
+  :Train with exploration;
+  :Evaluate against test formations;
+end fork
+
+:Save trained models;
+
+:Evaluate integrated system;
+:Record performance metrics;
+
+stop
+
+@enduml
+```
+
+The system's workflow is designed for both training and production use. During training, all three tracks (Formation Recognition, Counter-Strategy, and RL) can run independently and then be integrated. During production use, the system can switch between strategy recommendation and RL-based formation generation based on user preferences and available components.
 
 ## 10. CHALLENGES AND SOLUTIONS
 
