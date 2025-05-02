@@ -6,6 +6,43 @@ A strategic battleground simulation environment with AI model training capabilit
 
 The Battleground Simulator is a comprehensive platform for simulating strategic battles between two sides (Home and Enemy) on a grid-based battlefield. The system combines traditional rule-based AI with modern machine learning approaches, including reinforcement learning, to explore optimal battle strategies.
 
+## AI System Architecture
+
+Below are detailed diagrams showing how the AI system works to generate counter-formations against enemy strategies:
+
+### Complete System Architecture
+
+![Complete System Architecture](https://i.imgur.com/zPqyhSf.png)
+
+This UML class diagram shows the complete architecture of the AI system:
+
+- **Core Components** (bottom right): The battle simulator, battlefield state, and data collection systems
+- **Formation Recognition System** (left): CNN-based pattern recognition that analyzes enemy formations
+- **Strategy Generation System** (center): Creates optimal counter-formations using neural networks
+- **Reinforcement Learning System** (top right): PPO implementation for adaptive strategy learning
+- **Training System** (top): Manages the learning process for all AI components
+
+Each system includes simplified explanations in yellow notes describing their function in non-technical terms, making the complex architecture more accessible to users of all backgrounds.
+
+### Decision Flow Diagram
+
+![Decision Flow Diagram](https://i.imgur.com/3bAHuJS.png)
+
+This activity diagram illustrates the step-by-step process of how the AI makes decisions:
+
+1. **Enemy Formation Analysis**: The AI first processes the enemy formation
+2. **Pattern Recognition**: Neural networks identify tactical patterns
+3. **Feature Extraction**: Key spatial and tactical features are extracted
+4. **Strategy Generation**: Multiple candidate counter-formations are created
+5. **Success Prediction**: Each formation is evaluated for win probability
+6. **Formation Selection**: The optimal formation is chosen
+7. **Battle Simulation**: The battle plays out with the selected formations
+8. **Outcome Recording & Learning**: Results are stored for model improvement
+
+Each step includes both technical descriptions (for those interested in the ML implementation) and simplified explanations that make the process understandable to non-technical users.
+
+These diagrams provide a visual representation of how the various AI components work together to create an intelligent battle strategy system that learns and improves over time.
+
 ## Step-by-Step Running Guide
 
 ### Prerequisites
