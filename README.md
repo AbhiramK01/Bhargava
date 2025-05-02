@@ -12,7 +12,7 @@ Below are detailed diagrams showing how the AI system works to generate counter-
 
 ### Complete System Architecture
 
-![Complete System Architecture](https://i.imgur.com/zPqyhSf.png)
+![Complete System Architecture](./images/system_architecture.png)
 
 This UML class diagram shows the complete architecture of the AI system:
 
@@ -26,7 +26,7 @@ Each system includes simplified explanations in yellow notes describing their fu
 
 ### Decision Flow Diagram
 
-![Decision Flow Diagram](https://i.imgur.com/3bAHuJS.png)
+![Decision Flow Diagram](./images/decision_flow.png)
 
 This activity diagram illustrates the step-by-step process of how the AI makes decisions:
 
